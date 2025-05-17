@@ -251,7 +251,7 @@ with tabs[3]:
                             
                             df = pd.DataFrame(issues)
                             st.dataframe(df.style
-                                .applymap(lambda x: 'color: red' if x == df['Error'][0] else '')
+                                .applymap(lambda x: 'color: red' if x == df['Error'][0] else ''))
                             
                             # Show detailed examples
                             st.subheader("Top 5 Issues")
