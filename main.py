@@ -2,11 +2,49 @@ import streamlit as st
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-import tempfile, os, json
+import tempfile
+import os
+import json
+import language_tool_python  # Grammar checking
+import pdfplumber  # PDF text extraction
+from docx2python import docx2python  # DOCX text extraction
+import pandas as pd
+
+# -------------------- Text Processing Tools --------------------
+def extract_text_from_file(uploaded_file):
+    """Extract text from PDF, DOC, or DOCX files"""
+    try:
+        if uploaded_file.type == "application/pdf":
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = "\n".join([page.extract_text() for page in pdf.pages])
+            return text
+        
+        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                  "application/msword"]:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                tmp.write(uploaded_file.getvalue())
+                docx_content = docx2python(tmp.name)
+                text = docx_content.text
+                os.unlink(tmp.name)
+                return text
+                
+    except Exception as e:
+        st.error(f"Text extraction error: {str(e)}")
+        return ""
+
+def check_grammar(text):
+    """Check grammar and syntax using LanguageTool"""
+    try:
+        tool = language_tool_python.LanguageTool('en-US')
+        matches = tool.check(text)
+        return matches
+    except Exception as e:
+        st.error(f"Grammar check error: {str(e)}")
+        return []
 
 # -------------------- DocuMorph Engine --------------------
 class DocuMorphEngine:
-    def _init_(self, docx_file=None):
+    def __init__(self, docx_file=None):
         self.document = Document(docx_file) if docx_file else Document()
 
     def set_font(self, font_name, font_size):
@@ -81,35 +119,32 @@ class DocuMorphEngine:
 
 # -------------------- Template Manager --------------------
 TEMPLATE_DIR = "templates"
-
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
-
 
 def list_templates():
     return [f[:-5] for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]
-
 
 def load_template(name):
     path = os.path.join(TEMPLATE_DIR, f"{name}.json")
     return json.load(open(path)) if os.path.exists(path) else None
 
-
 def save_template(name, cfg):
     with open(os.path.join(TEMPLATE_DIR, f"{name}.json"), 'w') as f:
         json.dump(cfg, f)
-
 
 def delete_template(name):
     os.remove(os.path.join(TEMPLATE_DIR, f"{name}.json"))
 
 # -------------------- Streamlit UI --------------------
-st.set_page_config(page_title="DocuMorph AI", layout="wide")
+st.set_page_config(page_title="DocuMorph AI Pro", layout="wide")
 
 # Custom styles
 st.markdown("""
 <style>
     .stButton>button {width:100%; padding:0.75em;}
     .big-download .stDownloadButton>button {background-color:#4E79A7; color:white;}
+    .grammar-error { color: red; font-weight: bold; }
+    .grammar-suggestion { color: green; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -134,11 +169,11 @@ with st.sidebar:
         st.experimental_rerun()
 
 # Main App
-st.title("📄 DocuMorph AI – Intelligent Formatter")
+st.title("📄 DocuMorph AI Pro – Document Intelligence")
 
-tabs = st.tabs(["Styling", "Logo & HF", "Figures & Sections", "Export"])
+tabs = st.tabs(["Styling", "Logo & HF", "Content", "Text Analysis", "Export"])
 
-# Styling Tab
+# Styling Tab (unchanged)
 with tabs[0]:
     st.subheader("🎨 Document Styling")
     c1, c2 = st.columns(2)
@@ -154,7 +189,7 @@ with tabs[0]:
         ]
         st.session_state['margins'] = margins
 
-# Logo & Header/Footer Tab
+# Logo & Header/Footer Tab (unchanged)
 with tabs[1]:
     st.subheader("🖼 Logo & Header/Footer")
     col1, col2 = st.columns(2)
@@ -168,9 +203,9 @@ with tabs[1]:
         hf_size = st.slider("HF Font Size", 8, 20, 10)
         hf_align = st.selectbox("HF Alignment", ["Left", "Center", "Right"], index=1)
 
-# Figures & Sections Tab
+# Content Tab (renamed from Figures & Sections)
 with tabs[2]:
-    st.subheader("📑 Figures & Sections")
+    st.subheader("📑 Content Management")
     section_title = st.text_input("Section Title")
     bullets_input = st.text_area("Bullet List (one per line)")
     figure = st.file_uploader("Insert Figure", type=['png', 'jpg'], key='fig')
@@ -179,8 +214,58 @@ with tabs[2]:
     caption = st.text_input("Caption")
     caption_pos = st.radio("Caption Position", ['Above', 'Below'], horizontal=True)
 
-# Export Tab
+# New Text Analysis Tab
 with tabs[3]:
+    st.subheader("🔍 Text Analysis & Grammar Check")
+    
+    # Document Analysis Section
+    analysis_file = st.file_uploader("Upload Document for Analysis", 
+                                   type=['pdf', 'docx', 'doc'],
+                                   key='analysis_file')
+    
+    if analysis_file:
+        with st.spinner("Extracting text..."):
+            extracted_text = extract_text_from_file(analysis_file)
+            
+            if extracted_text:
+                st.subheader("Extracted Text Preview")
+                st.text_area("Full Text", extracted_text, height=200, key='extracted_text')
+                
+                if st.button("Run Grammar Check"):
+                    with st.spinner("Analyzing document..."):
+                        matches = check_grammar(extracted_text)
+                        
+                        if matches:
+                            st.warning(f"Found {len(matches)} potential issues")
+                            
+                            # Create a dataframe for better display
+                            issues = []
+                            for match in matches[:50]:  # Limit to first 50 issues
+                                context_start = max(0, match.offset-20)
+                                context = extracted_text[context_start:match.offset+20]
+                                issues.append({
+                                    "Error": match.message,
+                                    "Suggested": match.replacements[0] if match.replacements else "",
+                                    "Context": f"...{context}..."
+                                })
+                            
+                            df = pd.DataFrame(issues)
+                            st.dataframe(df.style
+                                .applymap(lambda x: 'color: red' if x == df['Error'][0] else '')
+                            
+                            # Show detailed examples
+                            st.subheader("Top 5 Issues")
+                            for i, match in enumerate(matches[:5]):
+                                st.markdown(f"""
+                                **{i+1}. {match.message}**  
+                                <span class="grammar-error">Error:</span> {extracted_text[match.offset:match.offset+match.errorLength]}  
+                                <span class="grammar-suggestion">Suggested:</span> {match.replacements[0] if match.replacements else "None"}  
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.success("No grammar issues found!")
+
+# Export Tab (unchanged)
+with tabs[4]:
     st.subheader("📤 Generate & Download")
     uploaded_file = st.file_uploader("Upload DOCX File", type=['docx'])
     if st.button("📝 Generate & Download", key='gen'):
