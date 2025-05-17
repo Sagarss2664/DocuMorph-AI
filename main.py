@@ -1,13 +1,18 @@
 import streamlit as st
 
-# MUST be the first Streamlit command
+# MUST be the very first Streamlit command
 st.set_page_config(
-    page_title="DocuMorph AI Pro", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
+    page_title="DocuMorph AI Pro",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/sagarss2664/DocuMorph-AI',
+        'Report a bug': "https://github.com/sagarss2664/DocuMorph-AI/issues",
+        'About': "# DocuMorph AI - Intelligent Document Formatter"
+    }
 )
 
-# Then import other libraries
+# Now import other libraries
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -21,27 +26,33 @@ from PIL import Image
 import nltk
 import subprocess
 import sys
-
-# Rest of your imports...
+import pandas as pd
 
 # -------------------- Setup NLTK Data --------------------
 @st.cache_resource
-def download_nltk_data():
+def setup_nltk():
     try:
-        nltk.download('punkt', quiet=True)
-        nltk.download('averaged_perceptron_tagger', quiet=True)
-        nltk.download('brown', quiet=True)
-        return True
-    except Exception as e:
-        st.error(f"Automatic download failed: {str(e)}")
-        return False
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        try:
+            nltk.download('punkt', quiet=True)
+            nltk.download('averaged_perceptron_tagger', quiet=True)
+            nltk.download('brown', quiet=True)
+        except Exception as e:
+            st.error(f"NLTK data download failed: {str(e)}")
+            st.warning("""
+            **Manual fix required:**
+            1. Run this command locally:
+            ```bash
+            python -m textblob.download_corpora
+            ```
+            2. Then redeploy your app
+            """)
+            return False
+    return True
 
-if not download_nltk_data():
-    st.warning("""
-    **Required data not found!**  
-    Please run this command in your terminal:  
-    `python -m textblob.download_corpora`
-    """)
+if not setup_nltk():
+    st.stop()
 
 # -------------------- Text Processing Tools --------------------
 def extract_text_from_file(uploaded_file):
@@ -63,7 +74,7 @@ def extract_text_from_file(uploaded_file):
         return ""
 
 def check_grammar(text):
-    """Enhanced grammar checking with error handling"""
+    """Comprehensive grammar checking with suggestions"""
     try:
         blob = TextBlob(text)
         issues = []
@@ -79,7 +90,27 @@ def check_grammar(text):
                     "context": str(sentence)[:50] + "..."
                 })
         
-        return issues[:50]  # Return first 50 issues max
+        # Additional checks for common errors
+        common_errors = {
+            "their": ["there", "they're"],
+            "your": ["you're"],
+            "its": ["it's"],
+            "affect": ["effect"],
+            "then": ["than"]
+        }
+        
+        for word, alternatives in common_errors.items():
+            if word in text.lower():
+                for alt in alternatives:
+                    if alt in text.lower():
+                        issues.append({
+                            "type": "Common Error",
+                            "original": word,
+                            "suggestion": f"Possible confusion with '{alt}'",
+                            "context": f"...{text.lower().split(word)[0][-20:]}{word}..."
+                        })
+        
+        return issues[:100]  # Limit to 100 issues
     except Exception as e:
         st.error(f"Grammar check error: {str(e)}")
         return []
@@ -183,7 +214,7 @@ def load_template(name):
 
 def save_template(name, cfg):
     with open(os.path.join(TEMPLATE_DIR, f"{name}.json"), "w") as f:
-        json.dump(cfg, f)
+        json.dump(cfg, f, indent=4)
 
 def delete_template(name):
     path = os.path.join(TEMPLATE_DIR, f"{name}.json")
@@ -191,13 +222,11 @@ def delete_template(name):
         os.remove(path)
 
 # -------------------- Streamlit UI --------------------
-st.set_page_config(page_title="DocuMorph AI Pro", layout="wide", initial_sidebar_state="expanded")
-
 # Custom CSS
 st.markdown("""
 <style>
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
+        gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
         padding: 8px 16px;
@@ -223,11 +252,15 @@ st.markdown("""
         color: #616161;
     }
     .stButton>button {
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
     }
     .stButton>button:hover {
-        transform: translateY(-2px);
+        transform: translateY(-1px);
         box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .stDownloadButton>button {
+        background-color: #4e79a7 !important;
+        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -260,11 +293,22 @@ with st.sidebar:
     if st.button("💾 Save Template", use_container_width=True):
         if new_template_name:
             current_settings = {
-                k: v for k, v in st.session_state.items() 
-                if k in ["font_name", "font_size", "line_spacing", "alignment", 
-                         "margin_top", "margin_bottom", "margin_left", "margin_right",
-                         "header_text", "footer_text", "hf_size", "hf_align",
-                         "logo_width", "logo_height"]
+                "font_name": st.session_state.get("font_name", "Times New Roman"),
+                "font_size": st.session_state.get("font_size", 12),
+                "line_spacing": st.session_state.get("line_spacing", 1.15),
+                "alignment": st.session_state.get("alignment", "Left"),
+                "margins": [
+                    st.session_state.get("margin_top", 1.0),
+                    st.session_state.get("margin_bottom", 1.0),
+                    st.session_state.get("margin_left", 1.0),
+                    st.session_state.get("margin_right", 1.0)
+                ],
+                "header_text": st.session_state.get("header_text", ""),
+                "footer_text": st.session_state.get("footer_text", ""),
+                "hf_size": st.session_state.get("hf_size", 10),
+                "hf_align": st.session_state.get("hf_align", "Center"),
+                "logo_width": st.session_state.get("logo_width", 1.0),
+                "logo_height": st.session_state.get("logo_height", 1.0)
             }
             save_template(new_template_name, current_settings)
             st.success(f"Template '{new_template_name}' saved!")
@@ -277,7 +321,7 @@ with st.sidebar:
             st.experimental_rerun()
 
 # Main App
-st.title("📄 DocuMorph AI Pro - Document Formatter")
+st.title("📄 DocuMorph AI Pro - Intelligent Document Formatter")
 
 tab1, tab2, tab3, tab4 = st.tabs(["Formatting", "Content", "Grammar Check", "Export"])
 
@@ -327,7 +371,7 @@ with tab2:
     col1, col2 = st.columns(2)
     with col1:
         logo = st.file_uploader(
-            "Upload Logo", 
+            "Upload Logo (PNG/JPG)", 
             type=["png", "jpg", "jpeg"],
             key="logo"
         )
@@ -373,7 +417,7 @@ with tab2:
         key="bullets"
     )
     figure = st.file_uploader(
-        "Add Figure", 
+        "Add Figure (PNG/JPG)", 
         type=["png", "jpg", "jpeg"],
         key="figure"
     )
@@ -420,7 +464,7 @@ with tab3:
         )
     
     if text_to_check and st.button("Run Grammar Check", use_container_width=True):
-        with st.spgress("Analyzing..."):
+        with st.spinner("Analyzing content..."):
             issues = check_grammar(text_to_check[:10000])  # Limit to first 10k chars
             
             if not issues:
@@ -428,21 +472,25 @@ with tab3:
             else:
                 st.warning(f"⚠️ Found {len(issues)} potential issues:")
                 
-                for i, issue in enumerate(issues[:20]):  # Show first 20 issues
-                    with st.expander(f"Issue {i+1}: {issue['type']}", expanded=i<3):
-                        st.markdown(f"""
-                        **Context:**  
-                        `{issue['context']}`  
-                        
-                        <span class="grammar-error">**Original:**</span>  
-                        `{issue['original']}`  
-                        
-                        <span class="grammar-suggestion">**Suggestion:**</span>  
-                        `{issue['suggestion']}`  
-                        """, unsafe_allow_html=True)
+                # Group issues by type
+                issue_types = {}
+                for issue in issues:
+                    if issue['type'] not in issue_types:
+                        issue_types[issue['type']] = []
+                    issue_types[issue['type']].append(issue)
                 
-                if len(issues) > 20:
-                    st.info(f"Showing first 20 of {len(issues)} issues")
+                # Display organized results
+                for issue_type, issues in issue_types.items():
+                    with st.expander(f"{issue_type} ({len(issues)} issues)", expanded=True):
+                        for i, issue in enumerate(issues[:20]):  # Show first 20 per type
+                            st.markdown(f"""
+                            **{i+1}. {issue['type']}**  
+                            <span class="error-type">Context: {issue['context']}</span>  
+                            <span class="grammar-error">Original:</span> {issue['original']}  
+                            <span class="grammar-suggestion">Suggestion:</span> {issue['suggestion']}
+                            """, unsafe_allow_html=True)
+                        if len(issues) > 20:
+                            st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
 
 # Tab 4: Export
 with tab4:

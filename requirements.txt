@@ -5,3 +5,4 @@ docx2python==2.0.1
 textblob==0.17.1
 pillow==10.1.0
 nltk==3.8.1
+pandas==2.2.3
