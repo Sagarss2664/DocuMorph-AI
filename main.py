@@ -14,29 +14,23 @@ import subprocess
 import sys
 
 # -------------------- Setup NLTK Data --------------------
+@st.cache_resource
 def download_nltk_data():
     try:
-        nltk.download('punkt')
-        nltk.download('averaged_perceptron_tagger')
-        nltk.download('brown')
+        nltk.download('punkt', quiet=True)
+        nltk.download('averaged_perceptron_tagger', quiet=True)
+        nltk.download('brown', quiet=True)
+        return True
     except Exception as e:
-        st.error(f"NLTK download error: {str(e)}")
-        st.info("Trying alternative download method...")
-        try:
-            subprocess.run([sys.executable, "-m", "textblob.download_corpora"], check=True)
-        except Exception as e:
-            st.error(f"Failed to download required data: {str(e)}")
-            st.markdown("""
-            **Manual Solution Required:**
-            1. Run this command in your terminal:
-            ```bash
-            python -m textblob.download_corpora
-            ```
-            2. Or use the [NLTK Downloader](http://nltk.org/data.html)
-            """)
+        st.error(f"Automatic download failed: {str(e)}")
+        return False
 
-# Run the download automatically when the app starts
-download_nltk_data()
+if not download_nltk_data():
+    st.warning("""
+    **Required data not found!**  
+    Please run this command in your terminal:  
+    `python -m textblob.download_corpora`
+    """)
 
 # -------------------- Text Processing Tools --------------------
 def extract_text_from_file(uploaded_file):
@@ -44,7 +38,7 @@ def extract_text_from_file(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
             with pdfplumber.open(uploaded_file) as pdf:
-                return "\n".join([page.extract_text() for page in pdf.pages])
+                return "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
         
         elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                   "application/msword"]:
@@ -60,12 +54,6 @@ def extract_text_from_file(uploaded_file):
 def check_grammar(text):
     """Enhanced grammar checking with error handling"""
     try:
-        # Ensure NLTK data is available
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            download_nltk_data()
-        
         blob = TextBlob(text)
         issues = []
         
@@ -80,25 +68,7 @@ def check_grammar(text):
                     "context": str(sentence)[:50] + "..."
                 })
         
-        # Additional checks for common errors
-        common_errors = {
-            "their": ["there", "they're"],
-            "your": ["you're"],
-            "its": ["it's"]
-        }
-        
-        for word, alternatives in common_errors.items():
-            if word in text.lower():
-                for alt in alternatives:
-                    if alt in text.lower():
-                        issues.append({
-                            "type": "Common Error",
-                            "original": word,
-                            "suggestion": f"Possible confusion with '{alt}'",
-                            "context": f"...{text.lower().split(word)[0][-20:]}{word}..."
-                        })
-        
-        return issues
+        return issues[:50]  # Return first 50 issues max
     except Exception as e:
         st.error(f"Grammar check error: {str(e)}")
         return []
@@ -210,111 +180,44 @@ def delete_template(name):
         os.remove(path)
 
 # -------------------- Streamlit UI --------------------
-st.set_page_config(page_title="DocuMorph AI Pro", layout="wide")
- 
-# Custom CSS with enhanced error display
+st.set_page_config(page_title="DocuMorph AI Pro", layout="wide", initial_sidebar_state="expanded")
+
+# Custom CSS
 st.markdown("""
 <style>
-    .grammar-error { 
-        color: #ff4b4b;
-        font-weight: bold;
-        background-color: #fff0f0;
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        border-radius: 4px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #f0f2f6;
+    }
+    .grammar-error {
+        color: #d32f2f;
+        background-color: #ffebee;
         padding: 2px 4px;
         border-radius: 3px;
     }
-    .grammar-suggestion { 
-        color: #00aa00;
-        background-color: #f0fff0;
+    .grammar-suggestion {
+        color: #388e3c;
+        background-color: #e8f5e9;
         padding: 2px 4px;
         border-radius: 3px;
     }
     .error-type {
-        font-size: 0.9em;
-        color: #888;
-        font-style: italic;
+        font-size: 0.85em;
+        color: #616161;
     }
-    .stProgress > div > div > div > div {
-        background-color: #4e79a7;
+    .stButton>button {
+        transition: all 0.3s ease;
     }
-</style>
-""", unsafe_allow_html=True)
-
-# [Rest of your Streamlit UI implementation remains the same]
-# ... (Include all the previous UI code)
-
-# Enhanced Grammar Check Tab
-with tabs[3]:  # Assuming tabs[3] is your grammar check tab
-    st.subheader("🔍 Advanced Grammar Check")
-    
-    check_option = st.radio(
-        "Check content from:",
-        ["Uploaded Document", "Enter Text Directly"],
-        horizontal=True
-    )
-    
-    if check_option == "Uploaded Document":
-        grammar_file = st.file_uploader(
-            "Upload Document (PDF/DOCX/TXT)", 
-            type=["pdf", "docx", "txt"],
-            key="grammar_file"
-        )
-        text_to_check = ""
-        if grammar_file:
-            with st.spinner("Extracting text..."):
-                text_to_check = extract_text_from_file(grammar_file)
-    else:
-        text_to_check = st.text_area(
-            "Enter text to analyze",
-            height=200,
-            key="direct_text"
-        )
-    
-    if text_to_check and st.button("Run Advanced Grammar Check"):
-        with st.spinner("Analyzing content..."):
-            progress_bar = st.progress(0)
-            
-            # Check 1: Grammar and spelling
-            progress_bar.progress(20)
-            grammar_issues = check_grammar(text_to_check[:10000])  # Limit to first 10k chars
-            
-            # Check 2: Readability metrics
-            progress_bar.progress(60)
-            # (You could add additional checks here)
-            
-            progress_bar.progress(100)
-            
-            if not grammar_issues:
-                st.success("✅ No issues found! Your document looks good.")
-            else:
-                st.warning(f"⚠️ Found {len(grammar_issues)} potential issues:")
-                
-                # Group issues by type
-                issue_types = {}
-                for issue in grammar_issues:
-                    if issue['type'] not in issue_types:
-                        issue_types[issue['type']] = []
-                    issue_types[issue['type']].append(issue)
-                
-                # Display organized results
-                for issue_type, issues in issue_types.items():
-                    with st.expander(f"{issue_type} ({len(issues)} issues)"):
-                        for i, issue in enumerate(issues[:20]):  # Show first 20 per type
-                            st.markdown(f"""
-                            **{i+1}. {issue['type']}**  
-                            <span class="error-type">Context: {issue['context']}</span>  
-                            <span class="grammar-error">Original:</span> {issue['original']}  
-                            <span class="grammar-suggestion">Suggestion:</span> {issue['suggestion']}
-                            """, unsafe_allow_html=True)
-                        if len(issues) > 20:
-                            st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
-# Custom CSS
-st.markdown("""
-<style>
-    .stButton>button { width: 100%; padding: 0.75em; }
-    .grammar-error { color: #ff4b4b; font-weight: bold; }
-    .grammar-suggestion { color: #00cc00; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 16px; }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -341,25 +244,30 @@ with st.sidebar:
             "logo_height": 1.0
         }
     
-    # Template Save/Delete
+    st.divider()
     new_template_name = st.text_input("Save Current Settings As")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("💾 Save"):
-            if new_template_name:
-                save_template(new_template_name, st.session_state)
-                st.success(f"Saved as '{new_template_name}'")
-            else:
-                st.error("Enter a template name")
-    with col2:
-        if selected_template != "<none>" and st.button("🗑 Delete"):
+    if st.button("💾 Save Template", use_container_width=True):
+        if new_template_name:
+            current_settings = {
+                k: v for k, v in st.session_state.items() 
+                if k in ["font_name", "font_size", "line_spacing", "alignment", 
+                         "margin_top", "margin_bottom", "margin_left", "margin_right",
+                         "header_text", "footer_text", "hf_size", "hf_align",
+                         "logo_width", "logo_height"]
+            }
+            save_template(new_template_name, current_settings)
+            st.success(f"Template '{new_template_name}' saved!")
+        else:
+            st.error("Please enter a template name")
+    
+    if selected_template != "<none>":
+        if st.button("🗑 Delete Template", use_container_width=True):
             delete_template(selected_template)
             st.experimental_rerun()
 
 # Main App
-st.title("📄 DocuMorph AI Pro")
+st.title("📄 DocuMorph AI Pro - Document Formatter")
 
-# Tab System
 tab1, tab2, tab3, tab4 = st.tabs(["Formatting", "Content", "Grammar Check", "Export"])
 
 # Tab 1: Formatting
@@ -390,18 +298,17 @@ with tab1:
             index=["Left", "Center", "Right", "Justify"].index(config.get("alignment", "Left")),
             key="alignment"
         )
+        st.write("Margins (inches):")
         margins = st.columns(4)
         margin_labels = ["Top", "Bottom", "Left", "Right"]
-        margin_values = []
         for i, label in enumerate(margin_labels):
             with margins[i]:
-                margin_values.append(st.number_input(
-                    f"{label} Margin (in)",
+                st.number_input(
+                    label,
                     0.1, 3.0,
                     config.get("margins", [1.0]*4)[i], 0.1,
                     key=f"margin_{label.lower()}"
-                ))
-        st.session_state.margins = margin_values
+                )
 
 # Tab 2: Content
 with tab2:
@@ -409,7 +316,7 @@ with tab2:
     col1, col2 = st.columns(2)
     with col1:
         logo = st.file_uploader(
-            "Upload Logo (PNG/JPG)", 
+            "Upload Logo", 
             type=["png", "jpg", "jpeg"],
             key="logo"
         )
@@ -436,7 +343,7 @@ with tab2:
             key="footer_text"
         )
         hf_size = st.slider(
-            "Header/Footer Size", 8, 20,
+            "Header/Footer Font Size", 8, 20,
             config.get("hf_size", 10),
             key="hf_size"
         )
@@ -447,24 +354,24 @@ with tab2:
             key="hf_align"
         )
     
-    st.subheader("📑 Sections & Figures")
-    section_title = st.text_input("Add Section Title", key="section_title")
+    st.subheader("📑 Sections & Media")
+    section_title = st.text_input("Section Title", key="section_title")
     bullets_input = st.text_area(
-        "Bullet Points (one per line)",
+        "Bullet Points (one per line)", 
         height=100,
         key="bullets"
     )
     figure = st.file_uploader(
-        "Add Figure (PNG/JPG)",
+        "Add Figure", 
         type=["png", "jpg", "jpeg"],
         key="figure"
     )
     if figure:
         fig_col1, fig_col2 = st.columns(2)
         with fig_col1:
-            fig_width = st.slider("Width (in)", 1.0, 6.0, 4.0, 0.1, key="fig_width")
+            fig_width = st.slider("Width (inches)", 1.0, 6.0, 4.0, 0.1, key="fig_width")
         with fig_col2:
-            fig_height = st.slider("Height (in)", 1.0, 6.0, 3.0, 0.1, key="fig_height")
+            fig_height = st.slider("Height (inches)", 1.0, 6.0, 3.0, 0.1, key="fig_height")
         caption = st.text_input("Caption", key="caption")
         caption_pos = st.radio(
             "Caption Position",
@@ -476,40 +383,55 @@ with tab2:
 # Tab 3: Grammar Check
 with tab3:
     st.subheader("🔍 Grammar & Spell Check")
-    grammar_file = st.file_uploader(
-        "Upload Document to Check", 
-        type=["pdf", "docx", "txt"],
-        key="grammar_file"
+    
+    check_option = st.radio(
+        "Check content from:",
+        ["Upload Document", "Enter Text Directly"],
+        horizontal=True,
+        key="check_source"
     )
     
-    if grammar_file:
-        with st.spinner("Extracting text..."):
-            text_content = extract_text_from_file(grammar_file)
-            if text_content:
-                st.text_area(
-                    "Extracted Text",
-                    text_content,
-                    height=200,
-                    key="extracted_text"
-                )
+    if check_option == "Upload Document":
+        grammar_file = st.file_uploader(
+            "Upload Document (PDF/DOCX/TXT)", 
+            type=["pdf", "docx", "txt"],
+            key="grammar_file"
+        )
+        text_to_check = ""
+        if grammar_file:
+            with st.spinner("Extracting text..."):
+                text_to_check = extract_text_from_file(grammar_file)
+    else:
+        text_to_check = st.text_area(
+            "Enter text to analyze",
+            height=200,
+            key="direct_text"
+        )
+    
+    if text_to_check and st.button("Run Grammar Check", use_container_width=True):
+        with st.spgress("Analyzing..."):
+            issues = check_grammar(text_to_check[:10000])  # Limit to first 10k chars
+            
+            if not issues:
+                st.success("✅ No grammar or spelling issues found!")
+            else:
+                st.warning(f"⚠️ Found {len(issues)} potential issues:")
                 
-                if st.button("Run Grammar Check", key="grammar_check"):
-                    with st.spinner("Checking grammar..."):
-                        issues = check_grammar(text_content[:5000])  # Limit to first 5000 chars
+                for i, issue in enumerate(issues[:20]):  # Show first 20 issues
+                    with st.expander(f"Issue {i+1}: {issue['type']}", expanded=i<3):
+                        st.markdown(f"""
+                        **Context:**  
+                        `{issue['context']}`  
                         
-                        if not issues:
-                            st.success("✅ No grammar/spelling issues found!")
-                        else:
-                            st.warning(f"⚠️ Found {len(issues)} potential issues:")
-                            for i, issue in enumerate(issues[:10]):  # Show first 10 issues
-                                st.markdown(f"""
-                                **{i+1}. Issue detected**  
-                                <span class="grammar-error">Original:</span> `{issue['original']}`  
-                                <span class="grammar-suggestion">Suggestion:</span> `{issue['suggestion']}`  
-                                *Context:* `{issue['context']}`  
-                                """, unsafe_allow_html=True)
-                            if len(issues) > 10:
-                                st.info(f"Showing first 10 of {len(issues)} issues")
+                        <span class="grammar-error">**Original:**</span>  
+                        `{issue['original']}`  
+                        
+                        <span class="grammar-suggestion">**Suggestion:**</span>  
+                        `{issue['suggestion']}`  
+                        """, unsafe_allow_html=True)
+                
+                if len(issues) > 20:
+                    st.info(f"Showing first 20 of {len(issues)} issues")
 
 # Tab 4: Export
 with tab4:
@@ -520,7 +442,7 @@ with tab4:
         key="doc_file"
     )
     
-    if st.button("Generate Formatted Document", key="generate"):
+    if st.button("Generate Formatted Document", use_container_width=True, type="primary"):
         if not doc_file:
             st.error("Please upload a DOCX file first")
         else:
@@ -536,7 +458,12 @@ with tab4:
                     )
                     engine.set_line_spacing(st.session_state.line_spacing)
                     engine.set_alignment(st.session_state.alignment)
-                    engine.set_margins(*st.session_state.margins)
+                    engine.set_margins(
+                        st.session_state.margin_top,
+                        st.session_state.margin_bottom,
+                        st.session_state.margin_left,
+                        st.session_state.margin_right
+                    )
                     
                     # Add logo if uploaded
                     if 'logo' in st.session_state and st.session_state.logo:
