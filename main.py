@@ -66,58 +66,58 @@ def get_closest_match(word):
         return suggestions[0][0]  # Return the most likely correction
     return word
 
-def improved_grammar_check(text):
-    """Enhanced grammar checking with better suggestions"""
-    try:
-        # First get TextBlob's suggestions
-        blob = TextBlob(text)
-        corrected = str(blob.correct())
+# def improved_grammar_check(text):
+#     """Enhanced grammar checking with better suggestions"""
+#     try:
+#         # First get TextBlob's suggestions
+#         blob = TextBlob(text)
+#         corrected = str(blob.correct())
         
-        # Use difflib to find changes between original and corrected
-        matcher = SequenceMatcher(None, text, corrected)
-        issues = []
+#         # Use difflib to find changes between original and corrected
+#         matcher = SequenceMatcher(None, text, corrected)
+#         issues = []
         
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == 'replace':
-                original = text[i1:i2]
-                suggested = corrected[j1:j2]
+#         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+#             if tag == 'replace':
+#                 original = text[i1:i2]
+#                 suggested = corrected[j1:j2]
                 
-                # Get context (50 chars before and after)
-                start = max(0, i1 - 20)
-                end = min(len(text), i2 + 20)
-                context = text[start:end]
+#                 # Get context (50 chars before and after)
+#                 start = max(0, i1 - 20)
+#                 end = min(len(text), i2 + 20)
+#                 context = text[start:end]
                 
-                issues.append({
-                    "type": "Grammar/Spelling",
-                    "original": original,
-                    "suggestion": suggested,
-                    "context": context
-                })
+#                 issues.append({
+#                     "type": "Grammar/Spelling",
+#                     "original": original,
+#                     "suggestion": suggested,
+#                     "context": context
+#                 })
         
-        # Additional checks for common errors
-        common_errors = {
-            r"\btheir\b": ["there", "they're"],
-            r"\byour\b": ["you're"],
-            r"\bits\b": ["it's"],
-            r"\baffect\b": ["effect"],
-            r"\bthen\b": ["than"]
-        }
+#         # Additional checks for common errors
+#         common_errors = {
+#             r"\btheir\b": ["there", "they're"],
+#             r"\byour\b": ["you're"],
+#             r"\bits\b": ["it's"],
+#             r"\baffect\b": ["effect"],
+#             r"\bthen\b": ["than"]
+#         }
         
-        for pattern, alternatives in common_errors.items():
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                for alt in alternatives:
-                    if re.search(alt, text, re.IGNORECASE):
-                        issues.append({
-                            "type": "Common Error",
-                            "original": match.group(),
-                            "suggestion": f"Possible confusion with '{alt}'",
-                            "context": text[max(0, match.start()-20):match.end()+20]
-                        })
+#         for pattern, alternatives in common_errors.items():
+#             for match in re.finditer(pattern, text, re.IGNORECASE):
+#                 for alt in alternatives:
+#                     if re.search(alt, text, re.IGNORECASE):
+#                         issues.append({
+#                             "type": "Common Error",
+#                             "original": match.group(),
+#                             "suggestion": f"Possible confusion with '{alt}'",
+#                             "context": text[max(0, match.start()-20):match.end()+20]
+#                         })
         
-        return issues[:100]  # Limit to 100 issues
-    except Exception as e:
-        st.error(f"Grammar check error: {str(e)}")
-        return []
+#         return issues[:100]  # Limit to 100 issues
+#     except Exception as e:
+#         st.error(f"Grammar check error: {str(e)}")
+#         return []
 
 # -------------------- Text Processing Tools --------------------
 def extract_text_from_file(uploaded_file):
@@ -361,7 +361,7 @@ with st.sidebar:
 # Main App
 st.title("📄 DocuMorph AI Pro - Intelligent Document Formatter")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Formatting", "Content", "Grammar Check", "Export"])
+tab1, tab2, tab3, tab4 = st.tabs(["Formatting", "Content", "Perform OCR", "Export"])
 
 # Tab 1: Formatting
 with tab1:
@@ -475,7 +475,7 @@ with tab2:
 
 # Tab 3: Grammar Check
 with tab3:
-    st.subheader("🔍 Grammar & Spell Check")
+    st.subheader("🔍 Performing OCR")
     
     check_option = st.radio(
         "Check content from:",
