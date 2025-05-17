@@ -507,34 +507,34 @@ with tab3:
             key="direct_text"
         )
     
-    if text_to_check and st.button("Run Advanced Grammar Check", use_container_width=True):
-        with st.spinner("Analyzing content..."):
-            issues = improved_grammar_check(text_to_check[:10000])  # Limit to first 10k chars
+    # if text_to_check and st.button("Run Advanced Grammar Check", use_container_width=True):
+    #     with st.spinner("Analyzing content..."):
+    #         issues = improved_grammar_check(text_to_check[:10000])  # Limit to first 10k chars
             
-            if not issues:
-                st.success("✅ No grammar or spelling issues found!")
-            else:
-                st.warning(f"⚠️ Found {len(issues)} potential issues:")
+    #         if not issues:
+    #             st.success("✅ No grammar or spelling issues found!")
+    #         else:
+    #             st.warning(f"⚠️ Found {len(issues)} potential issues:")
                 
-                # Group issues by type
-                issue_types = {}
-                for issue in issues:
-                    if issue['type'] not in issue_types:
-                        issue_types[issue['type']] = []
-                    issue_types[issue['type']].append(issue)
+    #             # Group issues by type
+    #             issue_types = {}
+    #             for issue in issues:
+    #                 if issue['type'] not in issue_types:
+    #                     issue_types[issue['type']] = []
+    #                 issue_types[issue['type']].append(issue)
                 
-                # Display organized results
-                for issue_type, issues in issue_types.items():
-                    with st.expander(f"{issue_type} ({len(issues)} issues)", expanded=True):
-                        for i, issue in enumerate(issues[:20]):  # Show first 20 per type
-                            st.markdown(f"""
-                            **{i+1}. {issue['type']}**  
-                            <span class="error-type">Context: {issue['context']}</span>  
-                            <span class="grammar-error">Original:</span> `{issue['original']}`  
-                            <span class="grammar-suggestion">Suggestion:</span> `{issue['suggestion']}`
-                            """, unsafe_allow_html=True)
-                        if len(issues) > 20:
-                            st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
+    #             # Display organized results
+    #             for issue_type, issues in issue_types.items():
+    #                 with st.expander(f"{issue_type} ({len(issues)} issues)", expanded=True):
+    #                     for i, issue in enumerate(issues[:20]):  # Show first 20 per type
+    #                         st.markdown(f"""
+    #                         **{i+1}. {issue['type']}**  
+    #                         <span class="error-type">Context: {issue['context']}</span>  
+    #                         <span class="grammar-error">Original:</span> `{issue['original']}`  
+    #                         <span class="grammar-suggestion">Suggestion:</span> `{issue['suggestion']}`
+    #                         """, unsafe_allow_html=True)
+    #                     if len(issues) > 20:
+    #                         st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
 
 # Tab 4: Export
 with tab4:
