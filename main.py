@@ -9,6 +9,34 @@ import pdfplumber
 from docx2python import docx2python
 from textblob import TextBlob
 from PIL import Image
+import nltk
+import subprocess
+import sys
+
+# -------------------- Setup NLTK Data --------------------
+def download_nltk_data():
+    try:
+        nltk.download('punkt')
+        nltk.download('averaged_perceptron_tagger')
+        nltk.download('brown')
+    except Exception as e:
+        st.error(f"NLTK download error: {str(e)}")
+        st.info("Trying alternative download method...")
+        try:
+            subprocess.run([sys.executable, "-m", "textblob.download_corpora"], check=True)
+        except Exception as e:
+            st.error(f"Failed to download required data: {str(e)}")
+            st.markdown("""
+            **Manual Solution Required:**
+            1. Run this command in your terminal:
+            ```bash
+            python -m textblob.download_corpora
+            ```
+            2. Or use the [NLTK Downloader](http://nltk.org/data.html)
+            """)
+
+# Run the download automatically when the app starts
+download_nltk_data()
 
 # -------------------- Text Processing Tools --------------------
 def extract_text_from_file(uploaded_file):
@@ -22,24 +50,54 @@ def extract_text_from_file(uploaded_file):
                                   "application/msword"]:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
                 tmp.write(uploaded_file.getvalue())
-                return docx2python(tmp.name).text
+                text = docx2python(tmp.name).text
+                os.unlink(tmp.name)
+                return text
     except Exception as e:
         st.error(f"Text extraction error: {str(e)}")
         return ""
 
 def check_grammar(text):
-    """Grammar checking using TextBlob (no Java required)"""
+    """Enhanced grammar checking with error handling"""
     try:
+        # Ensure NLTK data is available
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            download_nltk_data()
+        
         blob = TextBlob(text)
         issues = []
+        
+        # Check spelling and grammar
         for sentence in blob.sentences:
             corrected = sentence.correct()
             if str(sentence) != str(corrected):
                 issues.append({
+                    "type": "Grammar/Spelling",
                     "original": str(sentence),
                     "suggestion": str(corrected),
-                    "context": str(sentence)[:50] + "..."  # Show snippet
+                    "context": str(sentence)[:50] + "..."
                 })
+        
+        # Additional checks for common errors
+        common_errors = {
+            "their": ["there", "they're"],
+            "your": ["you're"],
+            "its": ["it's"]
+        }
+        
+        for word, alternatives in common_errors.items():
+            if word in text.lower():
+                for alt in alternatives:
+                    if alt in text.lower():
+                        issues.append({
+                            "type": "Common Error",
+                            "original": word,
+                            "suggestion": f"Possible confusion with '{alt}'",
+                            "context": f"...{text.lower().split(word)[0][-20:]}{word}..."
+                        })
+        
         return issues
     except Exception as e:
         st.error(f"Grammar check error: {str(e)}")
@@ -153,7 +211,102 @@ def delete_template(name):
 
 # -------------------- Streamlit UI --------------------
 st.set_page_config(page_title="DocuMorph AI Pro", layout="wide")
+ 
+# Custom CSS with enhanced error display
+st.markdown("""
+<style>
+    .grammar-error { 
+        color: #ff4b4b;
+        font-weight: bold;
+        background-color: #fff0f0;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    .grammar-suggestion { 
+        color: #00aa00;
+        background-color: #f0fff0;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    .error-type {
+        font-size: 0.9em;
+        color: #888;
+        font-style: italic;
+    }
+    .stProgress > div > div > div > div {
+        background-color: #4e79a7;
+    }
+</style>
+""", unsafe_allow_html=True)
 
+# [Rest of your Streamlit UI implementation remains the same]
+# ... (Include all the previous UI code)
+
+# Enhanced Grammar Check Tab
+with tabs[3]:  # Assuming tabs[3] is your grammar check tab
+    st.subheader("🔍 Advanced Grammar Check")
+    
+    check_option = st.radio(
+        "Check content from:",
+        ["Uploaded Document", "Enter Text Directly"],
+        horizontal=True
+    )
+    
+    if check_option == "Uploaded Document":
+        grammar_file = st.file_uploader(
+            "Upload Document (PDF/DOCX/TXT)", 
+            type=["pdf", "docx", "txt"],
+            key="grammar_file"
+        )
+        text_to_check = ""
+        if grammar_file:
+            with st.spinner("Extracting text..."):
+                text_to_check = extract_text_from_file(grammar_file)
+    else:
+        text_to_check = st.text_area(
+            "Enter text to analyze",
+            height=200,
+            key="direct_text"
+        )
+    
+    if text_to_check and st.button("Run Advanced Grammar Check"):
+        with st.spinner("Analyzing content..."):
+            progress_bar = st.progress(0)
+            
+            # Check 1: Grammar and spelling
+            progress_bar.progress(20)
+            grammar_issues = check_grammar(text_to_check[:10000])  # Limit to first 10k chars
+            
+            # Check 2: Readability metrics
+            progress_bar.progress(60)
+            # (You could add additional checks here)
+            
+            progress_bar.progress(100)
+            
+            if not grammar_issues:
+                st.success("✅ No issues found! Your document looks good.")
+            else:
+                st.warning(f"⚠️ Found {len(grammar_issues)} potential issues:")
+                
+                # Group issues by type
+                issue_types = {}
+                for issue in grammar_issues:
+                    if issue['type'] not in issue_types:
+                        issue_types[issue['type']] = []
+                    issue_types[issue['type']].append(issue)
+                
+                # Display organized results
+                for issue_type, issues in issue_types.items():
+                    with st.expander(f"{issue_type} ({len(issues)} issues)"):
+                        for i, issue in enumerate(issues[:20]):  # Show first 20 per type
+                            st.markdown(f"""
+                            **{i+1}. {issue['type']}**  
+                            <span class="error-type">Context: {issue['context']}</span>  
+                            <span class="grammar-error">Original:</span> {issue['original']}  
+                            <span class="grammar-suggestion">Suggestion:</span> {issue['suggestion']}
+                            """, unsafe_allow_html=True)
+                        if len(issues) > 20:
+                            st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
 # Custom CSS
 st.markdown("""
 <style>
