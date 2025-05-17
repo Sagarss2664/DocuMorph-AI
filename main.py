@@ -1,4 +1,13 @@
 import streamlit as st
+
+# MUST be the first Streamlit command
+st.set_page_config(
+    page_title="DocuMorph AI Pro", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
+
+# Then import other libraries
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -12,6 +21,8 @@ from PIL import Image
 import nltk
 import subprocess
 import sys
+
+# Rest of your imports...
 
 # -------------------- Setup NLTK Data --------------------
 @st.cache_resource
