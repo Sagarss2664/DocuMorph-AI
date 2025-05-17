@@ -27,17 +27,21 @@ import nltk
 import subprocess
 import sys
 import pandas as pd
+from difflib import SequenceMatcher
+import re
 
 # -------------------- Setup NLTK Data --------------------
 @st.cache_resource
 def setup_nltk():
     try:
         nltk.data.find('tokenizers/punkt')
+        return True
     except LookupError:
         try:
             nltk.download('punkt', quiet=True)
             nltk.download('averaged_perceptron_tagger', quiet=True)
             nltk.download('brown', quiet=True)
+            return True
         except Exception as e:
             st.error(f"NLTK data download failed: {str(e)}")
             st.warning("""
@@ -49,71 +53,96 @@ def setup_nltk():
             2. Then redeploy your app
             """)
             return False
-    return True
 
 if not setup_nltk():
     st.stop()
 
-# -------------------- Text Processing Tools --------------------
-def extract_text_from_file(uploaded_file):
-    """Extract text from PDF, DOC, or DOCX files"""
-    try:
-        if uploaded_file.type == "application/pdf":
-            with pdfplumber.open(uploaded_file) as pdf:
-                return "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
-        
-        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                  "application/msword"]:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                tmp.write(uploaded_file.getvalue())
-                text = docx2python(tmp.name).text
-                os.unlink(tmp.name)
-                return text
-    except Exception as e:
-        st.error(f"Text extraction error: {str(e)}")
-        return ""
+# -------------------- Enhanced Grammar Tools --------------------
+def get_closest_match(word):
+    """Get closest dictionary match for misspelled words"""
+    from textblob import Word
+    suggestions = Word(word).spellcheck()
+    if suggestions:
+        return suggestions[0][0]  # Return the most likely correction
+    return word
 
-def check_grammar(text):
-    """Comprehensive grammar checking with suggestions"""
+def improved_grammar_check(text):
+    """Enhanced grammar checking with better suggestions"""
     try:
+        # First get TextBlob's suggestions
         blob = TextBlob(text)
+        corrected = str(blob.correct())
+        
+        # Use difflib to find changes between original and corrected
+        matcher = SequenceMatcher(None, text, corrected)
         issues = []
         
-        # Check spelling and grammar
-        for sentence in blob.sentences:
-            corrected = sentence.correct()
-            if str(sentence) != str(corrected):
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'replace':
+                original = text[i1:i2]
+                suggested = corrected[j1:j2]
+                
+                # Get context (50 chars before and after)
+                start = max(0, i1 - 20)
+                end = min(len(text), i2 + 20)
+                context = text[start:end]
+                
                 issues.append({
                     "type": "Grammar/Spelling",
-                    "original": str(sentence),
-                    "suggestion": str(corrected),
-                    "context": str(sentence)[:50] + "..."
+                    "original": original,
+                    "suggestion": suggested,
+                    "context": context
                 })
         
         # Additional checks for common errors
         common_errors = {
-            "their": ["there", "they're"],
-            "your": ["you're"],
-            "its": ["it's"],
-            "affect": ["effect"],
-            "then": ["than"]
+            r"\btheir\b": ["there", "they're"],
+            r"\byour\b": ["you're"],
+            r"\bits\b": ["it's"],
+            r"\baffect\b": ["effect"],
+            r"\bthen\b": ["than"]
         }
         
-        for word, alternatives in common_errors.items():
-            if word in text.lower():
+        for pattern, alternatives in common_errors.items():
+            for match in re.finditer(pattern, text, re.IGNORECASE):
                 for alt in alternatives:
-                    if alt in text.lower():
+                    if re.search(alt, text, re.IGNORECASE):
                         issues.append({
                             "type": "Common Error",
-                            "original": word,
+                            "original": match.group(),
                             "suggestion": f"Possible confusion with '{alt}'",
-                            "context": f"...{text.lower().split(word)[0][-20:]}{word}..."
+                            "context": text[max(0, match.start()-20):match.end()+20]
                         })
         
         return issues[:100]  # Limit to 100 issues
     except Exception as e:
         st.error(f"Grammar check error: {str(e)}")
         return []
+
+# -------------------- Text Processing Tools --------------------
+def extract_text_from_file(uploaded_file):
+    """Extract text from PDF, DOC, or DOCX files with better formatting"""
+    try:
+        if uploaded_file.type == "application/pdf":
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n\n"
+                return text.strip()
+        
+        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                  "application/msword"]:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                tmp.write(uploaded_file.getvalue())
+                docx_content = docx2python(tmp.name)
+                text = docx_content.text
+                os.unlink(tmp.name)
+                return text
+    except Exception as e:
+        st.error(f"Text extraction error: {str(e)}")
+        return ""
 
 # -------------------- DocuMorph Engine --------------------
 class DocuMorphEngine:
@@ -261,6 +290,15 @@ st.markdown("""
     .stDownloadButton>button {
         background-color: #4e79a7 !important;
         color: white !important;
+    }
+    .extracted-text {
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background-color: #f6f8fa;
+        max-height: 300px;
+        overflow-y: auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -446,16 +484,22 @@ with tab3:
         key="check_source"
     )
     
+    text_to_check = ""
+    extracted_text = ""
+    
     if check_option == "Upload Document":
         grammar_file = st.file_uploader(
             "Upload Document (PDF/DOCX/TXT)", 
             type=["pdf", "docx", "txt"],
             key="grammar_file"
         )
-        text_to_check = ""
         if grammar_file:
             with st.spinner("Extracting text..."):
-                text_to_check = extract_text_from_file(grammar_file)
+                extracted_text = extract_text_from_file(grammar_file)
+                if extracted_text:
+                    st.subheader("Extracted Text Preview")
+                    st.markdown(f'<div class="extracted-text">{extracted_text[:5000]}</div>', unsafe_allow_html=True)
+                    text_to_check = extracted_text
     else:
         text_to_check = st.text_area(
             "Enter text to analyze",
@@ -463,9 +507,9 @@ with tab3:
             key="direct_text"
         )
     
-    if text_to_check and st.button("Run Grammar Check", use_container_width=True):
+    if text_to_check and st.button("Run Advanced Grammar Check", use_container_width=True):
         with st.spinner("Analyzing content..."):
-            issues = check_grammar(text_to_check[:10000])  # Limit to first 10k chars
+            issues = improved_grammar_check(text_to_check[:10000])  # Limit to first 10k chars
             
             if not issues:
                 st.success("✅ No grammar or spelling issues found!")
@@ -486,8 +530,8 @@ with tab3:
                             st.markdown(f"""
                             **{i+1}. {issue['type']}**  
                             <span class="error-type">Context: {issue['context']}</span>  
-                            <span class="grammar-error">Original:</span> {issue['original']}  
-                            <span class="grammar-suggestion">Suggestion:</span> {issue['suggestion']}
+                            <span class="grammar-error">Original:</span> `{issue['original']}`  
+                            <span class="grammar-suggestion">Suggestion:</span> `{issue['suggestion']}`
                             """, unsafe_allow_html=True)
                         if len(issues) > 20:
                             st.info(f"Showing first 20 of {len(issues)} {issue_type.lower()} issues")
